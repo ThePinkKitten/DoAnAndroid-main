@@ -1,16 +1,14 @@
 package com.example.doanandroid_main;
 
-import android.media.MediaMetadataRetriever;
+import android.content.DialogInterface;
 import android.media.MediaPlayer;
 import android.os.Bundle;
 import android.os.Handler;
 import android.view.View;
-import android.widget.Button;
+import android.widget.ImageButton;
 import android.widget.TextView;
-import android.content.res.AssetFileDescriptor;
-import android.app.AlertDialog;
-import android.content.DialogInterface;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import java.util.Random;
@@ -24,48 +22,61 @@ public class MainActivity extends AppCompatActivity {
     private Handler mHandler = new Handler();
     private boolean isShuffle = false;
     private boolean isRepeat = false;
+    private ImageButton btnPause;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        Button btnPlay = findViewById(R.id.btnPlay);
-        Button btnStop = findViewById(R.id.btnStop);
-        Button btnSkip = findViewById(R.id.btnSkip);
-        Button btnPrevious = findViewById(R.id.btnPrevious);
-        Button btnShuffle = findViewById(R.id.btnShuffle);
-        Button btnRepeat = findViewById(R.id.btnRepeat);
+        ImageButton btnPlay = findViewById(R.id.btnPlay);
+        btnPause = findViewById(R.id.btnPause);
+        ImageButton btnSkip = findViewById(R.id.btnSkip);
+        ImageButton btnPrevious = findViewById(R.id.btnPrevious);
+        ImageButton btnShuffle = findViewById(R.id.btnShuffle);
+        ImageButton btnRepeat = findViewById(R.id.btnRepeat);
         tvSongInfo = findViewById(R.id.tvSongInfo);
         tvSongTime = findViewById(R.id.tvSongTime);
 
-        mediaPlayer = MediaPlayer.create(this, musicResources[currentSongIndex]);
+        mediaPlayer = new MediaPlayer();
 
         btnPlay.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                playMusic();
+                showSongListDialog();
             }
         });
 
-        btnStop.setOnClickListener(new View.OnClickListener() {
+        btnPause.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                stopMusic();
+                pauseMusic();
             }
         });
 
         btnSkip.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                skipToNextSong();
+                if (mediaPlayer.getCurrentPosition() >= mediaPlayer.getDuration()) {
+                    skipToNextSong();
+                } else {
+                    mediaPlayer.stop();
+                    skipToNextSong();
+                }
             }
         });
 
         btnPrevious.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                skipToPreviousSong();
+                int currentPosition = mediaPlayer.getCurrentPosition();
+                int rewindThreshold = 5000;
+
+                if (currentPosition <= rewindThreshold) {
+                    skipToPreviousSong();
+                } else {
+                    mediaPlayer.seekTo(0);
+                }
             }
         });
 
@@ -83,232 +94,122 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        tvSongInfo.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                showSongListDialog();
-            }
-        });
-
-        // Cập nhật thời gian bài hát mỗi giây
         mHandler.postDelayed(updateSongTime, 1000);
     }
 
-
-    private void playMusic() {
-        // Sử dụng MediaMetadataRetriever để lấy thông tin từ tệp nhạc
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        try {
-            AssetFileDescriptor afd = getResources().openRawResourceFd(musicResources[currentSongIndex]);
-            if (afd != null) {
-                retriever.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
-                afd.close();
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-
-        // Lấy tên bài hát và nghệ sĩ từ metadata
-        String title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
-        String artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
-
-        // Kiểm tra xem thông tin có khả dụng hay không
-        if (title == null || title.isEmpty()) {
-            title = "Unknown Title";
-        }
-
-        if (artist == null || artist.isEmpty()) {
-            artist = "Unknown Artist";
-        }
-
-        // Hiển thị thông tin bài hát và nghệ sĩ
-        String songInfo = "Tên Bài Hát: " + title + " | Nghệ Sĩ: " + artist;
+    private void playMusic(int selectedSongIndex) {
+        currentSongIndex = selectedSongIndex;
+        int musicResource = musicResources[currentSongIndex];
+        String songName = getResources().getResourceEntryName(musicResource);
+        String songInfo = "Tên Bài Hát: " + songName;
         tvSongInfo.setText(songInfo);
 
-        // Tiếp tục phát nhạc
         if (!mediaPlayer.isPlaying()) {
-            mediaPlayer.start();
+            try {
+                mediaPlayer.reset();
+                mediaPlayer = MediaPlayer.create(getApplicationContext(), musicResource);
+                mediaPlayer.start();
+                updatePauseButtonImage();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
 
         mediaPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
             @Override
             public void onCompletion(MediaPlayer mp) {
-                // Bài hát hiện tại đã hoàn thành, chuyển đến bài hát tiếp theo
                 if (isRepeat) {
-                    // Nếu chế độ lặp lại đang được bật, chơi lại bài hát hiện tại
-                    playMusic();
+                    playMusic(currentSongIndex);
                 } else if (isShuffle) {
-                    // Nếu chế độ ngẫu nhiên đang được bật, chọn bài hát ngẫu nhiên
                     playRandomSong();
                 } else {
-                    // Ngược lại, chuyển đến bài hát tiếp theo trong danh sách
                     skipToNextSong();
                 }
             }
         });
     }
 
-    private void stopMusic() {
+    private void pauseMusic() {
         if (mediaPlayer.isPlaying()) {
             mediaPlayer.pause();
-            mediaPlayer.seekTo(0);
+            updatePauseButtonImage();
+        } else {
+            mediaPlayer.start();
+            updatePauseButtonImage();
+        }
+    }
+
+    private void updatePauseButtonImage() {
+        if (mediaPlayer.isPlaying()) {
+            btnPause.setImageResource(R.drawable.ic_pause);
+        } else {
+            btnPause.setImageResource(R.drawable.ic_play);
         }
     }
 
     private void skipToNextSong() {
         currentSongIndex++;
         if (currentSongIndex >= musicResources.length) {
-            currentSongIndex = 0;  // Quay lại bài hát đầu tiên nếu đã phát hết danh sách
+            currentSongIndex = 0;
         }
-
-        // Chuyển đến và chuẩn bị bài hát mới
-        mediaPlayer.reset();
-        mediaPlayer = MediaPlayer.create(MainActivity.this, musicResources[currentSongIndex]);
-
-        // Lấy thông tin bài hát mới
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        try {
-            AssetFileDescriptor afd = getResources().openRawResourceFd(musicResources[currentSongIndex]);
-            if (afd != null) {
-                retriever.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
-                afd.close();
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-
-        String newTitle = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
-        String newArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
-
-        // Kiểm tra xem thông tin có khả dụng hay không
-        if (newTitle == null || newTitle.isEmpty()) {
-            newTitle = "Unknown Title";
-        }
-
-        if (newArtist == null || newArtist.isEmpty()) {
-            newArtist = "Unknown Artist";
-        }
-
-        // Hiển thị thông tin bài hát và nghệ sĩ mới
-        String newSongInfo = "Tên Bài Hát: " + newTitle + " | Nghệ Sĩ: " + newArtist;
-        tvSongInfo.setText(newSongInfo);
-
-        playMusic();
+        playMusic(currentSongIndex);
     }
 
     private void skipToPreviousSong() {
         currentSongIndex--;
         if (currentSongIndex < 0) {
-            currentSongIndex = musicResources.length - 1;  // Quay lại bài hát cuối cùng nếu đang ở bài hát đầu tiên
+            currentSongIndex = musicResources.length - 1;
         }
 
-        // Chuyển đến và chuẩn bị bài hát mới
-        mediaPlayer.reset();
-        mediaPlayer = MediaPlayer.create(MainActivity.this, musicResources[currentSongIndex]);
-
-        // Lấy thông tin bài hát mới
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        try {
-            AssetFileDescriptor afd = getResources().openRawResourceFd(musicResources[currentSongIndex]);
-            if (afd != null) {
-                retriever.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
-                afd.close();
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
+        if (mediaPlayer.isPlaying()) {
+            mediaPlayer.stop();
+            playMusic(currentSongIndex);
+        } else {
+            displaySongInfo(currentSongIndex);
         }
+    }
 
-        String newTitle = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
-        String newArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
-
-        // Kiểm tra xem thông tin có khả dụng hay không
-        if (newTitle == null || newTitle.isEmpty()) {
-            newTitle = "Unknown Title";
-        }
-
-        if (newArtist == null || newArtist.isEmpty()) {
-            newArtist = "Unknown Artist";
-        }
-
-        // Hiển thị thông tin bài hát và nghệ sĩ mới
-        String newSongInfo = "Tên Bài Hát: " + newTitle + " | Nghệ Sĩ: " + newArtist;
-        tvSongInfo.setText(newSongInfo);
-
-        playMusic();
+    private void displaySongInfo(int songIndex) {
+        int musicResource = musicResources[songIndex];
+        String songName = getResources().getResourceEntryName(musicResource);
+        String songInfo = "Tên Bài Hát: " + songName;
+        tvSongInfo.setText(songInfo);
     }
 
     private void toggleShuffle() {
         isShuffle = !isShuffle;
         if (isShuffle) {
-            // Nếu chế độ ngẫu nhiên được bật, cập nhật giao diện người dùng hoặc thêm logic xử lý
+            // Update UI or add logic for shuffle mode
         } else {
-            // Ngược lại, cập nhật giao diện người dùng hoặc thêm logic xử lý
+            // Update UI or add logic for non-shuffle mode
         }
     }
 
     private void toggleRepeat() {
         isRepeat = !isRepeat;
         if (isRepeat) {
-            // Nếu chế độ lặp lại được bật, cập nhật giao diện người dùng hoặc thêm logic xử lý
+            // Update UI or add logic for repeat mode
         } else {
-            // Ngược lại, cập nhật giao diện người dùng hoặc thêm logic xử lý
+            // Update UI or add logic for non-repeat mode
         }
     }
 
     private void playRandomSong() {
         Random random = new Random();
         currentSongIndex = random.nextInt(musicResources.length);
-
-        // Chuyển đến và chuẩn bị bài hát mới
-        mediaPlayer.reset();
-        mediaPlayer = MediaPlayer.create(MainActivity.this, musicResources[currentSongIndex]);
-
-        // Lấy thông tin bài hát mới
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        try {
-            AssetFileDescriptor afd = getResources().openRawResourceFd(musicResources[currentSongIndex]);
-            if (afd != null) {
-                retriever.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
-                afd.close();
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-
-        String newTitle = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
-        String newArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
-
-        // Kiểm tra xem thông tin có khả dụng hay không
-        if (newTitle == null || newTitle.isEmpty()) {
-            newTitle = "Unknown Title";
-        }
-
-        if (newArtist == null || newArtist.isEmpty()) {
-            newArtist = "Unknown Artist";
-        }
-
-        // Hiển thị thông tin bài hát và nghệ sĩ mới
-        String newSongInfo = "Tên Bài Hát: " + newTitle + " | Nghệ Sĩ: " + newArtist;
-        tvSongInfo.setText(newSongInfo);
-
-        playMusic();
+        playMusic(currentSongIndex);
     }
 
-    // Runnable để cập nhật thời gian bài hát
     private Runnable updateSongTime = new Runnable() {
         public void run() {
             if (mediaPlayer.isPlaying()) {
                 int currentTime = mediaPlayer.getCurrentPosition();
-
-                // Cập nhật TextView với thời gian bài hát
                 tvSongTime.setText(formatTime(currentTime));
             }
-
             mHandler.postDelayed(this, 1000);
         }
     };
 
-    // Hàm để chuyển đổi thời gian từ milliseconds sang định dạng hh:mm:ss
     private String formatTime(int millis) {
         int seconds = millis / 1000;
         int minutes = seconds / 60;
@@ -324,83 +225,30 @@ public class MainActivity extends AppCompatActivity {
         if (mediaPlayer != null) {
             mediaPlayer.release();
         }
-        // Dừng cập nhật thời gian khi ứng dụng bị đóng
         mHandler.removeCallbacks(updateSongTime);
     }
 
-    // Hàm hiển thị Dialog danh sách bài hát
     private void showSongListDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("Chọn Bài Hát");
         builder.setItems(getSongTitles(), new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
-                // Khi người dùng chọn bài hát từ danh sách, chuyển đến bài hát được chọn
-                currentSongIndex = which;
-                prepareAndPlaySelectedSong();
+                playMusic(which);
             }
         });
         builder.show();
     }
 
-    // Hàm trả về danh sách tên bài hát để sử dụng trong Dialog
     private CharSequence[] getSongTitles() {
         CharSequence[] songTitles = new CharSequence[musicResources.length];
         for (int i = 0; i < musicResources.length; i++) {
-            MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-            try {
-                AssetFileDescriptor afd = getResources().openRawResourceFd(musicResources[i]);
-                if (afd != null) {
-                    retriever.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
-                    afd.close();
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
+            String songName = getResources().getResourceEntryName(musicResources[i]);
+            if (songName == null || songName.isEmpty()) {
+                songName = "Unknown Title";
             }
-            String title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
-            if (title == null || title.isEmpty()) {
-                title = "Unknown Title";
-            }
-            songTitles[i] = title;
+            songTitles[i] = songName;
         }
         return songTitles;
-    }
-
-    // Hàm chuẩn bị và phát bài hát được chọn
-    private void prepareAndPlaySelectedSong() {
-        // Chuyển đến và chuẩn bị bài hát mới
-        mediaPlayer.reset();
-        mediaPlayer = MediaPlayer.create(MainActivity.this, musicResources[currentSongIndex]);
-
-        // Lấy thông tin bài hát mới
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        try {
-            AssetFileDescriptor afd = getResources().openRawResourceFd(musicResources[currentSongIndex]);
-            if (afd != null) {
-                retriever.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
-                afd.close();
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-
-        String newTitle = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
-        String newArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
-
-        // Kiểm tra xem thông tin có khả dụng hay không
-        if (newTitle == null || newTitle.isEmpty()) {
-            newTitle = "Unknown Title";
-        }
-
-        if (newArtist == null || newArtist.isEmpty()) {
-            newArtist = "Unknown Artist";
-        }
-
-        // Hiển thị thông tin bài hát và nghệ sĩ mới
-        String newSongInfo = "Tên Bài Hát: " + newTitle + " | Nghệ Sĩ: " + newArtist;
-        tvSongInfo.setText(newSongInfo);
-
-        // Phát nhạc
-        playMusic();
     }
 }
